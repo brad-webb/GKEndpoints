@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 from google.cloud import container_v1
 from kubernetes import client, config
