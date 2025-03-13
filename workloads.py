@@ -77,10 +77,38 @@ def list_workloads_and_routes(project_id):
                                 # Print project, workload name, and route on the same line
                                 print(f"{project_id:<20} {dep_name:<30} {route}")
 
+
+
+def list_ingress_routes(project_id):
+    """Loop through Ingress resources and print project and route on each line."""
+    networking_v1 = client.NetworkingV1Api()
+    core_v1 = client.CoreV1Api()
+
+    # Get all namespaces
+    namespaces = core_v1.list_namespace().items
+    for ns in namespaces:
+        namespace = ns.metadata.name
+
+        # Get all Ingress resources in the namespace
+        ingresses = networking_v1.list_namespaced_ingress(namespace).items
+        if not ingresses:
+            continue
+
+        for ingress in ingresses:
+            for rule in ingress.spec.rules or []:
+                for path in rule.http.paths or []:
+                    # Format route as host + path
+                    route = f"{rule.host}{path.path or '/'}"
+                    # Print project and route on the same line
+                    print(f"{project_id:<20} {route}")
+
+
+
 def main():
     try:
         get_cluster_credentials()
-        list_workloads_and_routes(PROJECT_ID)
+        #list_workloads_and_routes(PROJECT_ID)
+        list_ingress_routes(PROJECT_ID)
     except Exception as e:
         print(f"Error: {e}")
 
