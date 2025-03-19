@@ -64,7 +64,7 @@ def get_cluster_credentials(use_private_endpoint=False):
         endpoint = cluster.private_cluster_config.use_private_endpoint
         if not endpoint:
             raise ValueError("Private endpoint not available. Esnure the cluster has a private endpoint and you have connectivity to it")
-    else
+    else:
         endpoint = cluster.endpoint
 
     k8s_config = client.Configuration()
