@@ -5,6 +5,7 @@ from kubernetes import client, config
 from google.auth import credentials
 import google.auth
 import requests.exceptions
+import requests
 
 # Configuration
 PROJECT_ID = "your-project-id"  # Replace with your project ID
@@ -18,8 +19,13 @@ def init_k8s_client():
     # Try public
     try:
         public_config = get_cluster_credentials(use_private_endpoint=False)
-        core_v1 = client.CoreV1Api(api_client=client.ApiClient(public_config))
-        networking_v1 = client.NetworkingV1Api(api_client=client.ApiClient(public_config))
+
+        # Init api_client and set timeout for HTTPS connection
+        api_client = client.ApiClient(configuration=public_config)
+        api_client.rest_client.pool_manager.connection_pool_kw['timeout'] = requests.Timeout(connect=5, read=None)
+
+        core_v1 = client.CoreV1Api(api_client=api_client)
+        networking_v1 = client.NetworkingV1Api(api_client=api_client)
 
         namespaces = core_v1.list_namespace().items
         print("Connected successfully using public endpoint.")
@@ -30,8 +36,13 @@ def init_k8s_client():
         # Try private
         try:
             private_config = get_cluster_credentials(use_private_endpoint=True)
-            core_v1 = client.CoreV1Api(api_client=client.ApiClient(private_config))
-            networking_v1 = client.NetworkingV1Api(api_client=client.ApiClient(private_config))
+
+            # Init api_client and set timeout for HTTPS connection
+            api_client = client.ApiClient(configuration=private_config)
+            api_client.rest_client.pool_manager.connection_pool_kw['timeout'] = requests.Timeout(connect=5, read=None)
+
+            core_v1 = client.CoreV1Api(api_client=api_client)
+            networking_v1 = client.NetworkingV1Api(api_client=api_client)
 
             namespaces = core_v1.list_namespace().items
             print("Connected successfully using private endpoint.")
@@ -61,7 +72,6 @@ def get_cluster_credentials(use_private_endpoint=False):
     k8s_config.api_key["authorization"] = f"Bearer {credentials.token}"
     k8s_config.verify_ssl = True
     k8s_config.ssl_ca_cert = cluster.master_auth.cluster_ca_certificate.encode()
-    k8s_config.timeout = 10
 
     config.load_kube_config_from_dict(config_dict={
         "apiVersion": "v1",
