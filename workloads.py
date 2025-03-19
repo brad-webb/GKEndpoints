@@ -16,39 +16,31 @@ DEBUG=1
 
 def init_k8s_client():
     """Initialise K8s API client with public/private endpoint fallback"""
-    # Try public
+    # Try private
     try:
-        public_config = get_cluster_credentials(use_private_endpoint=False)
+        private_config = get_cluster_credentials(use_private_endpoint=True)
 
-        # Init api_client and set timeout for HTTPS connection
-        api_client = client.ApiClient(configuration=public_config)
-        api_client.rest_client.pool_manager.connection_pool_kw['timeout'] = requests.Timeout(connect=5, read=None)
-
-        core_v1 = client.CoreV1Api(api_client=api_client)
-        networking_v1 = client.NetworkingV1Api(api_client=api_client)
+        core_v1 = client.CoreV1Api(api_client=client.ApiClient(configuration=private_config))
+        networking_v1 = client.NetworkingV1Api(api_client=client.ApiClient(configuration=private_config))
 
         namespaces = core_v1.list_namespace().items
-        print("Connected successfully using public endpoint.")
+        print("Connected successfully using private endpoint.")
         return networking_v1, core_v1
     except (requests.exceptions.ConnectTimeout, client.exceptions.ApiException) as e:
-        print(f"Public endpoint failed: str{(e)}. Falling back to private endpoint")
+        print(f"Private endpoint failed: str{(e)}. Falling back to public endpoint")
 
-        # Try private
+        # Try public
         try:
-            private_config = get_cluster_credentials(use_private_endpoint=True)
+            public_config = get_cluster_credentials(use_private_endpoint=False)
 
-            # Init api_client and set timeout for HTTPS connection
-            api_client = client.ApiClient(configuration=private_config)
-            api_client.rest_client.pool_manager.connection_pool_kw['timeout'] = requests.Timeout(connect=5, read=None)
-
-            core_v1 = client.CoreV1Api(api_client=api_client)
-            networking_v1 = client.NetworkingV1Api(api_client=api_client)
+            core_v1 = client.CoreV1Api(api_client=client.ApiClient(configuration=public_config))
+            networking_v1 = client.NetworkingV1Api(api_client=client.ApiClient(configuration=public_config))
 
             namespaces = core_v1.list_namespace().items
-            print("Connected successfully using private endpoint.")
+            print("Connected successfully using public endpoint.")
             return networking_v1, core_v1
         except (requests.exceptions.ConnectTimeout, client.exceptions.ApiException) as e:
-            print(f"Private endpoint failed: {str(e)}. Unable to connect to cluster.")
+            print(f"Public endpoint failed: {str(e)}. Unable to connect to cluster.")
             raise Exception("Failed to connect using both public and private endpoints")
 
 
@@ -61,7 +53,7 @@ def get_cluster_credentials(use_private_endpoint=False):
     cluster = gke_client.get_cluster(name=cluster_path)
 
     if use_private_endpoint:
-        endpoint = cluster.private_cluster_config.use_private_endpoint
+        endpoint = cluster.private_cluster_config.private_endpoint
         if not endpoint:
             raise ValueError("Private endpoint not available. Esnure the cluster has a private endpoint and you have connectivity to it")
     else:
@@ -155,7 +147,7 @@ def list_ingress_routes(netApi, coreApi):
 
 def main():
     try:
-        networking_v1, core_v1 = init_k8s_client()
+        networking_v1, core_v1 = init_k8s_client(use_private_endpoint=True)
         list_ingress_routes(netApi=networking_v1, coreApi=core_v1)
         #list_workloads_and_routes(netApi=networking_v1, coreApi=core_v1)
     except Exception as e:
