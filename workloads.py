@@ -14,7 +14,7 @@ REGION = "your-region"  # Replace with your region (e.g., "us-central1")
 
 DEBUG=1
 
-def init_k8s_client():
+def init_k8s_client(*, use_private_endpoint):
     """Initialise K8s API client with public/private endpoint fallback"""
     # Try private
     try:
