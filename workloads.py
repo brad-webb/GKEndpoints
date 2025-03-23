@@ -5,7 +5,6 @@ from kubernetes import client, config
 from google.auth import credentials
 import google.auth
 import requests.exceptions
-import requests
 
 # Configuration
 PROJECT_ID = "your-project-id"  # Replace with your project ID
@@ -123,6 +122,8 @@ def list_workloads_and_routes(netApi, coreApi):
 def list_ingress_routes(netApi, coreApi):
     """Loop through Ingress resources and print project and route on each line."""
 
+    ingress_endpoints={}
+
     # Get all namespaces
     namespaces = coreApi.list_namespace().items
     for ns in namespaces:
@@ -130,18 +131,27 @@ def list_ingress_routes(netApi, coreApi):
         print(f"Looking at {namespace}") if DEBUG else None
 
         # Get all Ingress resources in the namespace
-        ingresses = netApi.list_namespaced_ingress(namespace).items
+        ingresses = netApi.list_namespaced_ingress(namespace=namespace).items
         if not ingresses:
             continue
 
         for ingress in ingresses:
-            print(f"Found an ingress!")
+            annotations = ingress.metadata.annotations
+            ingress_name = ingress.metadata.name
+            ingress_class_key = "kubernetes.io/ingress.class"
+
+            if annotations and ingress_class_key in annotations:
+                ingress_class = annotations[ingress_class_key]
+                print(f"Ingress: {ingress_name}, class: {ingress_class}")
+
+            rule_count=0
             for rule in ingress.spec.rules or []:
                 for path in rule.http.paths or []:
-                    # Format route as host + path
                     route = f"{rule.host}{path.path or '/'}"
-                    # Print project and route on the same line
-                    print(f"{project_id:<20} {route}")
+                    print(f"About to assign ingress_endpoints using {PROJECT_ID}, {CLUSTER_NAME}, {namespace}, {ingress_name}, {rule_count}, {route}")
+                    # Use setdefault to create the 5-layer dict from the empty dict
+                    ingress_endpoints.setdefault(PROJECT_ID, {}).setdefault(CLUSTER_NAME, {}).setdefault(namespace, {}).setdefault(ingress_name, {})[rule_count] = route
+                    rule_count += 1
 
 
 
