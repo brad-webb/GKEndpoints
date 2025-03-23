@@ -5,6 +5,8 @@ from kubernetes import client, config
 from google.auth import credentials
 import google.auth
 import requests.exceptions
+import json
+import csv
 
 # Configuration
 PROJECT_ID = "your-project-id"  # Replace with your project ID
@@ -43,6 +45,7 @@ def init_k8s_client(*, use_private_endpoint):
             raise Exception("Failed to connect using both public and private endpoints")
 
 
+
 def get_cluster_credentials(use_private_endpoint=False):
     """Authenticate and get Kubernetes cluster configuration."""
     credentials, project = google.auth.default()
@@ -72,6 +75,8 @@ def get_cluster_credentials(use_private_endpoint=False):
         "kind": "Config",
         "users": [{"name": "gke-user", "user": {"token": credentials.token}}]
     })
+
+
 
 def list_workloads_and_routes(netApi, coreApi):
     """Loop through workloads and print project, workload name, and route on each line."""
@@ -123,6 +128,7 @@ def list_ingress_routes(netApi, coreApi):
     """Loop through Ingress resources and print project and route on each line."""
 
     ingress_endpoints={}
+    headers = ["PROJECT_ID", "CLUSTER_NAME", "namespace", "ingress_name", "rule_count", "route"]
 
     # Get all namespaces
     namespaces = coreApi.list_namespace().items
@@ -153,12 +159,52 @@ def list_ingress_routes(netApi, coreApi):
                     ingress_endpoints.setdefault(PROJECT_ID, {}).setdefault(CLUSTER_NAME, {}).setdefault(namespace, {}).setdefault(ingress_name, {})[rule_count] = route
                     rule_count += 1
 
+    return ingress_endpoints, headers
+
+
+
+def flatten_data(data):
+    """ Take multi-level dicts and flatten so we can later write to csv"""
+    print(f"Flattening data") if DEBUG else None
+    rows = []
+
+    for project_id, clusters in data.items():
+        for cluster_name, namespaces in clusters.items():
+            for namespace, ingresses in namespaces.items():
+                for ingress_name, rules in ingresses.items():
+                    for rule_count, route in rules.items():
+                        rows.append({
+                            "PROJECT_ID": project_id,
+                            "CLUSTER_NAME": cluster_name,
+                            "namespace": namespace,
+                            "ingress_name": ingress_name,
+                            "rule_count": rule_count,
+                            "route": route
+                        })
+
+    return rows
+
+
+
+def write_csv(data, headers):
+    """ Write data to CSV file """
+    print(f"Writing CSV file") if DEBUG else None
+    with open("endpoints.csv", "w", newline="") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(data)
+
+
 
 
 def main():
     try:
-        networking_v1, core_v1 = init_k8s_client(use_private_endpoint=True)
-        list_ingress_routes(netApi=networking_v1, coreApi=core_v1)
+        networking_v1, core_v1        = init_k8s_client(use_private_endpoint=True)
+        ingress_endpoints, headers    = list_ingress_routes(netApi=networking_v1, coreApi=core_v1)
+        flat_data                     = flatten_data(ingress_endpoints)
+        write_csv(flat_data, headers)
+
+        #gateway_endpoints      = list_gateway_routes(netApi=networking_v1, coreApi=core_v1)
         #list_workloads_and_routes(netApi=networking_v1, coreApi=core_v1)
     except Exception as e:
         print(f"Error: {e}")
