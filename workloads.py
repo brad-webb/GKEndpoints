@@ -13,8 +13,7 @@ PROJECT_ID = "your-project-id"  # Replace with your project ID
 CLUSTER_NAME = "your-cluster-name"  # Replace with your GKE cluster name
 REGION = "your-region"  # Replace with your region (e.g., "us-central1")
 
-
-DEBUG=1
+DEBUG=0
 
 def init_k8s_client(*, use_private_endpoint):
     """Initialise K8s API client with public/private endpoint fallback"""
@@ -129,7 +128,7 @@ def list_ingress_routes(netApi, coreApi):
     """Loop through Ingress resources and print project and route on each line."""
 
     ingress_endpoints={}
-    headers = ["PROJECT_ID", "CLUSTER_NAME", "namespace", "ingress_name", "rule_count", "route"]
+    headers = ["PROJECT_ID", "CLUSTER_NAME", "namespace", "ingress_name", "rule_count", "route", "service", "port", "ingress_class"]
 
     # Get all namespaces
     namespaces = coreApi.list_namespace().items
@@ -146,6 +145,7 @@ def list_ingress_routes(netApi, coreApi):
             annotations = ingress.metadata.annotations
             ingress_name = ingress.metadata.name
             ingress_class_key = "kubernetes.io/ingress.class"
+            ingress_class = None #default if no class
 
             if annotations and ingress_class_key in annotations:
                 ingress_class = annotations[ingress_class_key]
@@ -157,16 +157,18 @@ def list_ingress_routes(netApi, coreApi):
                     route   = f"{rule.host}{path.path or '/'}"
                     service = path.backend.service.name
                     port    = str(path.backend.service.port.number)
-                    print(f"About to assign ingress_endpoints using {PROJECT_ID}, {CLUSTER_NAME}, {namespace}, {ingress_name}, {rule_count}, {route}, {service}, {port}")
-                    # Use setdefault to create the 5-layer dict from the empty dict
-                    #ingress_endpoints.setdefault(PROJECT_ID, {}).setdefault(CLUSTER_NAME, {}).setdefault(namespace, {}).setdefault(ingress_name, {})[rule_count] = route
+                    print(f"About to assign ingress_endpoints using {PROJECT_ID}, {CLUSTER_NAME}, {namespace}, {ingress_class}, {ingress_name}, {rule_count}, {route}, {service}, {port}")
+                    # Use setdefault to create the multi-layer dict from the empty dict
                     ingress_endpoints.setdefault(PROJECT_ID, {}) \
                       .setdefault(CLUSTER_NAME, {}) \
                       .setdefault(namespace, {}) \
                       .setdefault(ingress_name, {}) \
-                      .setdefault(rule_count, {}) \
-                      .setdefault(route, {}) \
-                      [service] = port
+                      [rule_count] = {
+                         "route": route,
+                         "service": service,
+                         "port": port,
+                         "ingress_class": ingress_class
+                      }
                     rule_count += 1
 
     return ingress_endpoints, headers
@@ -182,14 +184,17 @@ def flatten_data(data):
         for cluster_name, namespaces in clusters.items():
             for namespace, ingresses in namespaces.items():
                 for ingress_name, rules in ingresses.items():
-                    for rule_count, route in rules.items():
+                    for rule_count, details in rules.items():
                         rows.append({
                             "PROJECT_ID": project_id,
                             "CLUSTER_NAME": cluster_name,
                             "namespace": namespace,
                             "ingress_name": ingress_name,
                             "rule_count": rule_count,
-                            "route": route
+                            "route": details["route"],
+                            "service": details["service"],
+                            "port": details["port"],
+                            "ingress_class": details["ingress_class"],
                         })
 
     return rows
