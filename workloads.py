@@ -127,6 +127,10 @@ def list_workloads_and_routes(netApi, coreApi):
 def list_ingresses(netApi, coreApi):
     """Loop through Ingress resources and print project and route on each line."""
 
+    print(f"Getting ingresses...")
+
+    custom_api = client.CustomObjectsApi()
+
     ingress_endpoints={}
     headers = ["PROJECT_ID", "CLUSTER_NAME", "namespace", "ingress_name", "rule_count", "route", "service", "port", "ingress_class"]
 
@@ -149,7 +153,7 @@ def list_ingresses(netApi, coreApi):
 
             if annotations and ingress_class_key in annotations:
                 ingress_class = annotations[ingress_class_key]
-                print(f"Ingress: {ingress_name}, class: {ingress_class}")
+                print(f"Ingress: {ingress_name}, class: {ingress_class}") if DEBUG else None
 
             rule_count=0
             for rule in ingress.spec.rules or []:
@@ -157,7 +161,7 @@ def list_ingresses(netApi, coreApi):
                     route   = f"{rule.host}{path.path or '/'}"
                     service = path.backend.service.name
                     port    = str(path.backend.service.port.number)
-                    print(f"About to assign ingress_endpoints using {PROJECT_ID}, {CLUSTER_NAME}, {namespace}, {ingress_class}, {ingress_name}, {rule_count}, {route}, {service}, {port}")
+                    print(f"About to assign ingress_endpoints using {PROJECT_ID}, {CLUSTER_NAME}, {namespace}, {ingress_class}, {ingress_name}, {rule_count}, {route}, {service}, {port}") if DEBUG else None
                     # Use setdefault to create the multi-layer dict from the empty dict
                     ingress_endpoints.setdefault(PROJECT_ID, {}) \
                       .setdefault(CLUSTER_NAME, {}) \
@@ -177,6 +181,10 @@ def list_ingresses(netApi, coreApi):
 def list_gateways(coreApi):
     """Loop through Gateway resources and extract relevant information."""
 
+    print(f"Getting gateways...")
+
+    custom_api = client.CustomObjectsApi()
+
     gateway_endpoints = {}
     headers = ["PROJECT_ID", "CLUSTER_NAME", "namespace", "gateway_name", "gateway_class",
                "loadbalancer", "ip_address", "listener_count", "listener_name", "listener_protocol",
@@ -189,7 +197,7 @@ def list_gateways(coreApi):
         print(f"Looking at {namespace}") if DEBUG else None
 
         try:
-            gateways = customApi.list_namespaced_custom_object(
+            gateways = custom_api.list_namespaced_custom_object(
                 group="gateway.networking.k8s.io",
                 version="v1",
                 namespace=namespace,
@@ -204,6 +212,7 @@ def list_gateways(coreApi):
 
         for gateway in gateways:
             gateway_name = gateway["metadata"]["name"]
+            print(f"Name of gateway is {gateway_name}") if DEBUG else None
             gateway_class = gateway["spec"].get("gatewayClassName", "None")  # Default to "None"
             loadbalancer = None
             ip_address = None
@@ -245,6 +254,7 @@ def list_gateways(coreApi):
                         "gateway_class": gateway_class,
                         "loadbalancer": loadbalancer or "None",
                         "ip_address": ip_address or "None",
+                        "listener_count": listener_count,
                         "listener_name": listener_name,
                         "listener_protocol": listener_protocol,
                         "listener_port": listener_port,
@@ -257,7 +267,7 @@ def list_gateways(coreApi):
 
 def flatten_ingress_data(data):
     """ Take multi-level dicts and flatten so we can later write to csv"""
-    print(f"Flattening data") if DEBUG else None
+    print(f"Flattening ingress data") if DEBUG else None
     rows = []
 
     for project_id, clusters in data.items():
@@ -283,36 +293,46 @@ def flatten_ingress_data(data):
 
 def flatten_gateway_data(data):
     """ Take multi-level dicts and flatten so we can later write to csv"""
-    print(f"Flattening data") if DEBUG else None
+    print(f"Flattening gateway data") if DEBUG else None
     rows = []
 
     for project_id, clusters in data.items():
         for cluster_name, namespaces in clusters.items():
             for namespace, gateways in namespaces.items():
-                for gateway_name, details in gateways.items():
-                    rows.append({
-                        "PROJECT_ID": project_id,
-                        "CLUSTER_NAME": cluster_name,
-                        "namespace": namespace,
-                        "gateway_name": gateway_name,
-                        "gateway_class": details["gateway_class"],
-                        "loadbalancer": details["loadbalancer"],
-                        "ip_address": details["ip_address"],
-                        "listener_count": details["listener_count"],
-                        "listener_name": details["listener_name"],
-                        "listener_protocol": details["listener_protocol"],
-                        "listener_port": details["listener_port"],
-                        "routes": details["routes"]
-                    })
+                for gateway_name, listeners in gateways.items():
+                    for listener_count, details in listeners.items():
+                        rows.append({
+                            "PROJECT_ID": project_id,
+                            "CLUSTER_NAME": cluster_name,
+                            "namespace": namespace,
+                            "gateway_name": gateway_name,
+                            "gateway_class": details["gateway_class"],
+                            "loadbalancer": details["loadbalancer"],
+                            "ip_address": details["ip_address"],
+                            "listener_count": details["listener_count"],
+                            "listener_name": details["listener_name"],
+                            "listener_protocol": details["listener_protocol"],
+                            "listener_port": details["listener_port"],
+                            "routes": details["routes"]
+                        })
 
     return rows
 
 
 
-def write_csv(data, headers):
+def write_csv(data, headers, endpoint_type="default"):
+
+    if endpoint_type == "ingresses":
+        filename = "ingresses.csv"
+    elif endpoint_type == "gateways":
+        filename = "gateways.csv"
+    else:
+        filename = "default.csv"
+
+
     """ Write data to CSV file """
-    print(f"Writing CSV file") if DEBUG else None
-    with open("endpoints.csv", "w", newline="") as csvfile:
+    print(f"Writing CSV file for {endpoint_type}")
+    with open(filename, "w", newline="") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=headers)
         writer.writeheader()
         writer.writerows(data)
@@ -328,8 +348,12 @@ def main():
         flat_ingress_data                  = flatten_ingress_data(ingress_endpoints)
         flat_gateway_data                  = flatten_gateway_data(gateway_endpoints)
 
-        write_csv(flat_ingress_data, ingress_headers)
-        write_csv(flat_ingress_data, gateway_headers)
+
+        print(f"Ingress headers are {ingress_headers}") if DEBUG else None
+        print(f"Gateway headers are {gateway_headers}") if DEBUG else None
+
+        write_csv(flat_ingress_data, ingress_headers, endpoint_type="ingresses")
+        write_csv(flat_gateway_data, gateway_headers, endpoint_type="gateways")
 
         #gateway_endpoints      = list_gateway_routes(netApi=networking_v1, coreApi=core_v1)
         #list_workloads_and_routes(netApi=networking_v1, coreApi=core_v1)
