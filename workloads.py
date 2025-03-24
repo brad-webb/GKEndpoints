@@ -124,7 +124,7 @@ def list_workloads_and_routes(netApi, coreApi):
 
 
 
-def list_ingress_routes(netApi, coreApi):
+def list_ingresses(netApi, coreApi):
     """Loop through Ingress resources and print project and route on each line."""
 
     ingress_endpoints={}
@@ -174,8 +174,88 @@ def list_ingress_routes(netApi, coreApi):
     return ingress_endpoints, headers
 
 
+def list_gateways(coreApi):
+    """Loop through Gateway resources and extract relevant information."""
 
-def flatten_data(data):
+    gateway_endpoints = {}
+    headers = ["PROJECT_ID", "CLUSTER_NAME", "namespace", "gateway_name", "gateway_class",
+               "loadbalancer", "ip_address", "listener_count", "listener_name", "listener_protocol",
+               "listener_port", "routes"]
+
+    # Get namespaces
+    namespaces = coreApi.list_namespace().items
+    for ns in namespaces:
+        namespace = ns.metadata.name
+        print(f"Looking at {namespace}") if DEBUG else None
+
+        try:
+            gateways = customApi.list_namespaced_custom_object(
+                group="gateway.networking.k8s.io",
+                version="v1",
+                namespace=namespace,
+                plural="gateways"
+            ).get("items", [])
+        except Exception as e:
+            print(f"Error fetching gateways in {namespace}: {e}")
+            continue
+
+        if not gateways:
+            continue
+
+        for gateway in gateways:
+            gateway_name = gateway["metadata"]["name"]
+            gateway_class = gateway["spec"].get("gatewayClassName", "None")  # Default to "None"
+            loadbalancer = None
+            ip_address = None
+
+            # Get LoadBalancer and IP address
+            status = gateway.get("status", {})
+            addresses = status.get("addresses", [])
+            if addresses:
+                for address in addresses:
+                    if address["type"] == "IPAddress":
+                        ip_address = address["value"]
+                    elif address["type"] == "Hostname" and "loadbalancer" in address["value"].lower():
+                        loadbalancer = address["value"]
+                    # If no specific LoadBalancer type, assume first IP is from LB if present
+                    if not ip_address and address["type"] == "IPAddress":
+                        ip_address = address["value"]
+                        loadbalancer = "inferred"
+
+            print(f"Gateway: {gateway_name}, class: {gateway_class}, IP: {ip_address or 'None'}, LB: {loadbalancer or 'None'}") if DEBUG else None
+
+            listener_count = 0
+            for listener in gateway["spec"].get("listeners", []):
+                listener_name = listener.get("name")
+                listener_protocol = listener.get("protocol")
+                listener_port = str(listener.get("port"))
+
+                # Routes: Placeholder for correlated route data
+                # For simplicity, set as "N/A"; see notes below for full route correlation
+                routes = "N/A"
+
+                print(f"About to assign gateway_endpoints using {PROJECT_ID}, {CLUSTER_NAME}, {namespace}, {gateway_name}, {gateway_class}, {loadbalancer}, {ip_address}, {listener_count}, {listener_name}, {listener_protocol}, {listener_port}, {routes}") if DEBUG else None
+
+                # Build the nested dictionary
+                gateway_endpoints.setdefault(PROJECT_ID, {}) \
+                    .setdefault(CLUSTER_NAME, {}) \
+                    .setdefault(namespace, {}) \
+                    .setdefault(gateway_name, {}) \
+                    [listener_count] = {
+                        "gateway_class": gateway_class,
+                        "loadbalancer": loadbalancer or "None",
+                        "ip_address": ip_address or "None",
+                        "listener_name": listener_name,
+                        "listener_protocol": listener_protocol,
+                        "listener_port": listener_port,
+                        "routes": routes
+                    }
+                listener_count += 1
+
+    return gateway_endpoints, headers
+
+
+def flatten_ingress_data(data):
     """ Take multi-level dicts and flatten so we can later write to csv"""
     print(f"Flattening data") if DEBUG else None
     rows = []
@@ -201,6 +281,34 @@ def flatten_data(data):
 
 
 
+def flatten_gateway_data(data):
+    """ Take multi-level dicts and flatten so we can later write to csv"""
+    print(f"Flattening data") if DEBUG else None
+    rows = []
+
+    for project_id, clusters in data.items():
+        for cluster_name, namespaces in clusters.items():
+            for namespace, gateways in namespaces.items():
+                for gateway_name, details in gateways.items():
+                    rows.append({
+                        "PROJECT_ID": project_id,
+                        "CLUSTER_NAME": cluster_name,
+                        "namespace": namespace,
+                        "gateway_name": gateway_name,
+                        "gateway_class": details["gateway_class"],
+                        "loadbalancer": details["loadbalancer"],
+                        "ip_address": details["ip_address"],
+                        "listener_count": details["listener_count"],
+                        "listener_name": details["listener_name"],
+                        "listener_protocol": details["listener_protocol"],
+                        "listener_port": details["listener_port"],
+                        "routes": details["routes"]
+                    })
+
+    return rows
+
+
+
 def write_csv(data, headers):
     """ Write data to CSV file """
     print(f"Writing CSV file") if DEBUG else None
@@ -214,10 +322,14 @@ def write_csv(data, headers):
 
 def main():
     try:
-        networking_v1, core_v1        = init_k8s_client(use_private_endpoint=True)
-        ingress_endpoints, headers    = list_ingress_routes(netApi=networking_v1, coreApi=core_v1)
-        flat_data                     = flatten_data(ingress_endpoints)
-        write_csv(flat_data, headers)
+        networking_v1, core_v1             = init_k8s_client(use_private_endpoint=True)
+        ingress_endpoints, ingress_headers = list_ingresses(netApi=networking_v1, coreApi=core_v1)
+        gateway_endpoints, gateway_headers = list_gateways(coreApi=core_v1)
+        flat_ingress_data                  = flatten_ingress_data(ingress_endpoints)
+        flat_gateway_data                  = flatten_gateway_data(gateway_endpoints)
+
+        write_csv(flat_ingress_data, ingress_headers)
+        write_csv(flat_ingress_data, gateway_headers)
 
         #gateway_endpoints      = list_gateway_routes(netApi=networking_v1, coreApi=core_v1)
         #list_workloads_and_routes(netApi=networking_v1, coreApi=core_v1)
