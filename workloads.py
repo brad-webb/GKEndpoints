@@ -13,6 +13,7 @@ PROJECT_ID = "your-project-id"  # Replace with your project ID
 CLUSTER_NAME = "your-cluster-name"  # Replace with your GKE cluster name
 REGION = "your-region"  # Replace with your region (e.g., "us-central1")
 
+
 DEBUG=1
 
 def init_k8s_client(*, use_private_endpoint):
@@ -153,10 +154,19 @@ def list_ingress_routes(netApi, coreApi):
             rule_count=0
             for rule in ingress.spec.rules or []:
                 for path in rule.http.paths or []:
-                    route = f"{rule.host}{path.path or '/'}"
-                    print(f"About to assign ingress_endpoints using {PROJECT_ID}, {CLUSTER_NAME}, {namespace}, {ingress_name}, {rule_count}, {route}")
+                    route   = f"{rule.host}{path.path or '/'}"
+                    service = path.backend.service.name
+                    port    = str(path.backend.service.port.number)
+                    print(f"About to assign ingress_endpoints using {PROJECT_ID}, {CLUSTER_NAME}, {namespace}, {ingress_name}, {rule_count}, {route}, {service}, {port}")
                     # Use setdefault to create the 5-layer dict from the empty dict
-                    ingress_endpoints.setdefault(PROJECT_ID, {}).setdefault(CLUSTER_NAME, {}).setdefault(namespace, {}).setdefault(ingress_name, {})[rule_count] = route
+                    #ingress_endpoints.setdefault(PROJECT_ID, {}).setdefault(CLUSTER_NAME, {}).setdefault(namespace, {}).setdefault(ingress_name, {})[rule_count] = route
+                    ingress_endpoints.setdefault(PROJECT_ID, {}) \
+                      .setdefault(CLUSTER_NAME, {}) \
+                      .setdefault(namespace, {}) \
+                      .setdefault(ingress_name, {}) \
+                      .setdefault(rule_count, {}) \
+                      .setdefault(route, {}) \
+                      [service] = port
                     rule_count += 1
 
     return ingress_endpoints, headers
