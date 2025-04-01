@@ -65,8 +65,8 @@ def list_forwarding_rules(project):
                     rules.append({
                         'name': rule.name,
                         'region': region.split('/')[-1] if region else 'global',
-                        'ip_address': rule.i_p_address,
-                        'ip_protocol': rule.i_p_protocol,
+                        'ip_address': rule.I_p_address,
+                        'ip_protocol': rule.I_p_protocol,
                         'target': rule.target.split('/')[-1] if rule.target else ''
                     })
         return rules
@@ -124,8 +124,6 @@ def main():
     # Restore the original CLOUDSDK_CORE_PROJECT
     if default_project:
         os.environ['CLOUDSDK_CORE_PROJECT'] = default_project
-    else:
-        del os.environ['CLOUDSDK_CORE_PROJECT'] if 'CLOUDSDK_CORE_PROJECT' in os.environ else None
 
     print("Script completed.")
 
